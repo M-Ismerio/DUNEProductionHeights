@@ -16,6 +16,8 @@ print('Saving to root file...')
 
 SaveRootTH3D('Histogram_mu_E30_cZ10_N1_hbin5.0')
 
+MakeOscillogramTemplate(Energies, Angles, 1, 1)
+
 print('Done.')
 
 print('Plotting example:')

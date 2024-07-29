@@ -8,11 +8,16 @@ import sys, os
 path_to_Honda_folder = 'HondaHomestake/'
 out_folder = 'InterpolatedFluxes'
 
+def ExtendToZero(Enu, h):
+    a = (h[1] - h[0])/(Enu[1]-Enu[0])
+    b = h[0] - a*Enu[0]
+    return array([b])
+
 # Function to implement log-interpolation (E)
 def log_interp1d(x, y, kind='linear'):
     logx = log10(x)
     logy = log10(y)
-    lin_interp = interpolate.interp1d(logx, logy, kind=kind)
+    lin_interp = interpolate.interp1d(logx, logy, kind=kind, bounds_error=None, fill_value="extrapolate")
     log_interp = lambda z: power(10.0, lin_interp(log10(z)))
     return log_interp
 
@@ -41,14 +46,16 @@ def InterpolateFluxE(solcycle, SubGeV=False):
     flux_eb = []
     for i in arange(0, 20, 1):                               
         var = loadtxt(path_to_Honda_folder+solcycle, unpack=True, skiprows=2+103*(19-i), max_rows=mr) #starting from [-1,-0.9]
-        flux_mu.append(var[1])
-        flux_mub.append(var[2])
-        flux_e.append(var[3])
-        flux_eb.append(var[4])
-    x = var[0]
+        flux_mu.append(concatenate((ExtendToZero(var[0], var[1]), var[1]), axis=0))
+        flux_mub.append(concatenate((ExtendToZero(var[0], var[2]), var[2]), axis=0))
+        flux_e.append(concatenate((ExtendToZero(var[0], var[3]), var[3]), axis=0))
+        flux_eb.append(concatenate((ExtendToZero(var[0], var[4]), var[4]), axis=0))
+    x = concatenate((array([1e-3]), var[0]), axis=0)
 
     if SubGeV==True: xnew = linspace(0.1, 1, 901)
-    else: xnew = linspace(0.1, 100, 99901)
+    else: 
+        xnew = concatenate((linspace(0.001, 100, 100001)[:-1], logspace(2, 4, 101)), axis=0)
+        
     
     os.system('mkdir -p InterpolatedFluxes')
     orig_stdout = sys.stdout
@@ -81,7 +88,7 @@ def InterpolateFluxTheta(solcycle, SubGeV=False):
         if solcycle=='solmin':file= "InterpolatedFluxes/Honda_Interpolated_noOsc_solmin_SubGeV.txt"
         else: file= "InterpolatedFluxes/Honda_Interpolated_noOsc_SubGeV.txt"
     else: 
-        mr = 99901
+        mr = len(concatenate((linspace(0.001, 100, 100001)[:-1], logspace(2, 4, 101)), axis=0))
         if solcycle=='solmin':file= "InterpolatedFluxes/Honda_Interpolated_noOsc_solmin.txt"
         else: file= "InterpolatedFluxes/Honda_Interpolated_noOsc.txt"
 
@@ -131,13 +138,13 @@ def InterpolateFluxTheta(solcycle, SubGeV=False):
             savetxt('InterpolatedFluxes/phi_mb_Interpolated_noOsc.txt', phi_mb)
 
 print('Starting Flux Interpolation...')
-InterpolateFluxE(solmax)
+#InterpolateFluxE(solmax)
 InterpolateFluxTheta('solmax')
 
 #Prepare for regular grid interpolator
 flavors=['e', 'mu', 'ebar', 'mubar']
 flv_label={'e':'e', 'mu':'m', 'ebar':'eb', 'mubar':'mb'}
-E = linspace(0.1, 100, 99901)
+E = concatenate((linspace(0.001, 100, 100001)[:-1], logspace(2, 4, 101)), axis=0)
 cosZ = cos(linspace(0, 180, 181)*pi/180)
 points = [E, cosZ[::-1]]
 for flv in flavors:

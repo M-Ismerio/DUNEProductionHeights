@@ -27,11 +27,11 @@ def Read_h(flavor, cosZ_indexbin, PLOT=False):
     h_CDF = loadtxt('%s/hms-ally-aa-nu%s.d'%(path_to_CDF_folder, flavor), skiprows=1+102*cosZ_indexbin, max_rows=mr)
 
     # E[60] = 105.9 GeV
-    E = h_CDF[:61,0] # energy
-    h_0p5 = h_CDF[:61, 11]*1e-3 # median
-    h_0p3 = h_CDF[:61, 7]*1e-3 # CDF = 0.3
-    h_0p7 = h_CDF[:61, 15]*1e-3 # CDF = 0.7
-    #h_0p99 = h_CDF[:61, -1]*1e-3 # CDF = 0.7
+    E = h_CDF[:,0] # energy
+    h_0p5 = h_CDF[:, 11]*1e-3 # median
+    h_0p3 = h_CDF[:, 7]*1e-3 # CDF = 0.3
+    h_0p7 = h_CDF[:, 15]*1e-3 # CDF = 0.7
+    #h_0p99 = h_CDF[:, -1]*1e-3 # CDF = 0.7
 
     if PLOT==True:
         plt.figure(figsize=(5, 3.5))
@@ -60,32 +60,51 @@ def Read_quant(flavor, cosZ_indexbin, Enu_indexbin, quant):
     return E, point
 # E.g.: Read_quant('mu', 10, 0, 0.5)
 
+# Linear extrapolate to get b from ax+b=y
+def ExtendToZero(Enu, h):
+    a = (h[1] - h[0])/(Enu[1]-Enu[0])
+    b = h[0] - a*Enu[0]
+    return b
+
 # Interpolates Honda points in a [E, cosZ] grid and saves functions for each percentile.
 # In practice we will use that to calculate the height for a given percentile at an arbitrary [E, cosZ]
 def InterpolateQuantile(Q):
     out_folder = 'Interpolated_CDF'
     os.system('mkdir -p %s'%out_folder)
-    points_mu = []
-    points_e = []
-    points_mub = []
-    points_eb = []
+    Points_mu = []
+    Points_e = []
+    Points_mub = []
+    Points_eb = []
+    E = Read_h('mu', 0)[0] # energy
     for c in range(20):
-        for e in range(61):
+        points_mu = []
+        points_e = []
+        points_mub = []
+        points_eb = []
+        for e in range(101):
             points_mu.append(Read_quant('mu', c, e, Q)[1])
             points_e.append(Read_quant('e', c, e, Q)[1])
             points_mub.append(Read_quant('mubar', c, e, Q)[1])
             points_eb.append(Read_quant('ebar', c, e, Q)[1])
-    points_mu = array(points_mu).reshape((20, 61))
-    points_e = array(points_e).reshape((20, 61))
-    points_mub = array(points_mub).reshape((20, 61))
-    points_eb = array(points_eb).reshape((20, 61))
-    E = Read_h('mu', 0)[0] # energy
+        b = ExtendToZero(E, points_mu)
+        Points_mu.append([b]+points_mu)
+        b = ExtendToZero(E, points_e)
+        Points_e.append([b]+points_e)
+        b = ExtendToZero(E, points_mub)
+        Points_mub.append([b]+points_mub)
+        b = ExtendToZero(E, points_eb)
+        Points_eb.append([b]+points_eb)
+    Points_mu = array(Points_mu).reshape((20, 102))
+    Points_e = array(Points_e).reshape((20, 102))
+    Points_mub = array(Points_mub).reshape((20, 102))
+    Points_eb = array(Points_eb).reshape((20, 102))
     cosZ = linspace(-0.95, 0.95, 20)[::-1] # bin centers
+    E = concatenate((array([0]), E), axis=0)
     points = [cosZ, E]
-    f_mu = interpolate.RegularGridInterpolator(points, points_mu, method='cubic', bounds_error=False, fill_value=None)
-    f_e = interpolate.RegularGridInterpolator(points, points_e, method='cubic', bounds_error=False, fill_value=None)
-    f_mub = interpolate.RegularGridInterpolator(points, points_mub, method='cubic', bounds_error=False, fill_value=None)
-    f_eb = interpolate.RegularGridInterpolator(points, points_eb, method='cubic', bounds_error=False, fill_value=None)
+    f_mu = interpolate.RegularGridInterpolator(points, Points_mu, method='cubic', bounds_error=False, fill_value=None)
+    f_e = interpolate.RegularGridInterpolator(points, Points_e, method='cubic', bounds_error=False, fill_value=None)
+    f_mub = interpolate.RegularGridInterpolator(points, Points_mub, method='cubic', bounds_error=False, fill_value=None)
+    f_eb = interpolate.RegularGridInterpolator(points, Points_eb, method='cubic', bounds_error=False, fill_value=None)
     save('%s/InterpQuant_mu_%.2f'%(out_folder, Q), f_mu)
     save('%s/InterpQuant_e_%.2f'%(out_folder, Q), f_e)
     save('%s/InterpQuant_mubar_%.2f'%(out_folder, Q), f_mub)
@@ -243,6 +262,33 @@ def GetAverageHist(flavor, Energies, Angles, N, hbin_width=2, savename=''):
     return HistogramAverage
 # E.g.: GetAverageHist(flavor='mu', Energies=logspace(-1, 2, 31), Angles=linspace(-1, 1, 11), N=1, hbin_width=5)
 
+# Returns a finer binning from a coarse binning.
+def GetFineBinning(arr, N):
+    if N==1:
+        return arr
+    FineBinning = []
+    for i in range(len(arr)-1):
+        FineBinning.append(linspace(arr[i], arr[i+1], N+1)[:-1])
+    FineBinning=array(FineBinning).flatten()
+    FineBinning=concatenate((FineBinning, array([arr[-1]])), axis=0)
+    return FineBinning
+# E.g.: GetFineBinning(linspace(0, 100, 11), 10)
+
+# Makes a template to use the same binning when making an oscillogram.
+def MakeOscillogramTemplate(EnergiesCoarse, AnglesCoarse, N_E, N_Z):
+    EnergiesFine=GetFineBinning(EnergiesCoarse, N_E)
+    AnglesFine=GetFineBinning(AnglesCoarse, N_Z)
+    HistNameCoarse="OscillogramTemplate_Coarse"
+    HistNameFine="OscillogramTemplate_Fine"
+    HistLabels=";TrueNeutrinoEnergy;TrueCosineZ"
+    hCoarse = ROOT.TH2D(HistNameCoarse, HistLabels, len(EnergiesCoarse)-1, EnergiesCoarse, len(AnglesCoarse)-1, AnglesCoarse)
+    hFine = ROOT.TH2D(HistNameFine, HistLabels, len(EnergiesFine)-1, EnergiesFine, len(AnglesFine)-1, AnglesFine)
+    OutputFile = ROOT.TFile("OscillogramTemplate_new.root", "RECREATE")
+    hCoarse.Write()
+    hFine.Write()
+    OutputFile.Close()
+# E.g.: MakeOscillogramTemplate(logspace(-1, 2, 31), linspace(-1, 1, 11), N_E=10, N_Z=10)
+
 # Saves to ROOT file in the format needed bu CUDAProb3. Note that although a specific flavor is needed in filename, the root file will contain all flavors.
 def SaveRootTH3D(filename):
     Energies, Angles, Heights = load('Binning/%s_BinsX.npy'%filename), load('Binning/%s_BinsY.npy'%filename), load('Binning/%s_BinsZ.npy'%filename)
@@ -304,8 +350,6 @@ def ReadRootTH3D(filename, flavor):
     print('Histogram has shape: ', H3.shape)
     return H3, binsX, binsY, binsZ
 # E.g.: ReadRootTH3D('ProdHeightDist_E30_cZ10_N1_hbin5.0', 'mu')
-
-
 
 ''' Plotting '''
 
